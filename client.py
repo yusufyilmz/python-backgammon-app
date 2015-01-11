@@ -1,9 +1,7 @@
-__author__ = 'yusufyilmz'
-
 import sys
 import socket
 from MessageImplementer import *
-
+from temp import *
 
 class Client(object):
         def __init__(self, serverIP, port, username):
@@ -15,6 +13,7 @@ class Client(object):
                 self.color = ''
                 self.userType = 'unknown'
                 self.playRequest = 'unknown'
+                self.board = ''
 
         def CreateLoginRequest(self):
                 paramDict = {}
@@ -112,7 +111,7 @@ class Client(object):
                 if rMsg == '':
                         return False
                 #todo
-                elif header == 'SRVPng':
+                elif header == 'SPNG':
                         if sMsg is not False:
                                 self.s.send(sMsg)
                 elif header == 'SRVP':
@@ -122,9 +121,7 @@ class Client(object):
                 elif header == 'SRVK':
                         self.HandleServerOkMessage(rMsg)
                 elif header == 'SRVE':
-                        print(rMsg)
-                        #todo
-                        self.state = 'CONNECTED'
+                        print('you put wrong message, please try again later')
                 else:
                         print('unknown message from the server')
                         print(rMsg)
@@ -186,40 +183,61 @@ class Client(object):
                                 self.color = paramDict['color']
                                 print('result is success')
                                 self.state = 'PLAYING'
+                                self.board = paramDict['board']
                                 self.playingInputScreen()
 
                 elif self.playRequest == 'dice':
                         dice1 = paramDict['Dice1']
                         dice2 = paramDict['Dice2']
+                        self.board = paramDict['board']
                         print("dice results are:" + str(dice1) + ", " + str(dice2))
                         self.playingInputScreen()
 
                 elif self.playRequest == 'move':
+                        self.board = paramDict['board']
+                        self.turn = paramDict['turn']
+                        self.playingInputScreen()
+
+                elif self.playRequest == 'wrongmove':
+                        self.board = paramDict['board']
                         self.turn = paramDict['turn']
                         self.playingInputScreen()
 
         def CreateGameRequests(self, userInput):
-                sMsg = False
                 try:
                         if 4 == int(userInput):
-                                #todo
-                                print("dice rquest send")
-                                sMsg = "CTDC"
+                                self.CreateThrowDiceMessage()
                         elif 6 == int(userInput):
-                                #todo
-                                sMsg = "CSMV"
+                                self.CreateSendMoveMessage()
                         elif 5 == int(userInput):
-                                #todo
-                                sMsg = "CWMA"
+                                self.CreateWrongMoveMessage()
                         else:
                                 self.playingInputScreen()
                 except ValueError:
                         print("error")
                         self.connectedInputScreen()
 
-                if sMsg is not False:
-                        print(sMsg + "message sended")
-                        self.s.send(sMsg)
+
+        def CreateThrowDiceMessage(self):
+                 print("dice request is sending")
+                 messageHandler.SendMessage(self.s, "CTDC", None)
+
+
+        def CreateSendMoveMessage(self):
+                print("move is sending")
+                print("Press moves sequentially from source to destination( ex: 6 2 4 2 5 3")
+                sys.stdout.write("> ")
+                sys.stdout.flush()
+                clientInput = sys.stdin.readline()
+                paramDict = {}
+                paramDict['move'] = str(clientInput)
+                messageHandler.SendMessage(self.s, "CSMV", paramDict)
+
+        def CreateWrongMoveMessage(self):
+                print("wrong move is sending")
+                messageHandler.SendMessage(self.s, "CWMA", None)
+
+
 
         def CreateClientInputLeaveState(self, userInput):
                 sMsg = False
@@ -236,8 +254,8 @@ class Client(object):
 
 
         def connectedInputScreen(self):
-                print("Press 1 for play")
-                print("Press 2 for watch")
+                print("(1) Play")
+                print("(2) Watch")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
 
@@ -253,6 +271,7 @@ class Client(object):
 
         def playingInputScreen(self):
                 print("turn : " + self.turn)
+                print(self.board)
                 while True:
                         if int(self.turn) == 1:
                                 if self.playRequest == 'play':
@@ -265,22 +284,17 @@ class Client(object):
                                         print("Press 4 for throwing Dice ")
                                         print("Press 5 for wrong move alert ")
 
-
-                                sys.stdout.write("> ")
-                                sys.stdout.flush()
-                                break
+                                return
                         else:
                                 print("waiting opponent to move")
                                 msg = self.s.recv(1024)
                                 print("your turn")
-                                self.handleServerInput(msg)
-
-
+                                return self.handleServerInput(msg)
 
 if __name__ == "__main__":
         messageHandler = MessageImplementer()
         serverIP = '0.0.0.0'
-        username = 'sd29'
-        port = 12351
+        username = 'sd48'
+        port = 12352
         c = Client(serverIP, port, username)
         c.run()
