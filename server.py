@@ -120,13 +120,13 @@ class BackGammonPlayer(threading.Thread):
                 self.gameInitializer = False
                 self.game = False
 
-# 
+#
 # mysocket.setblocking(0)
-# 
+#
 # ready = select.select([mysocket], [], [], timeout_in_seconds)
 # if ready[0]:
 #     data = mysocket.recv(4096)
-#     
+#
         def run(self):
 
                 self.player = BackGammonPlayer(self.playerSocket, self.serverAddress)
