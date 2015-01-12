@@ -18,25 +18,6 @@ WHITE = 'W'
 BLACK = 'B'
 
 class BackGammonBoard(object):
-    """
-    A Board has 24 Points with at most 15 Pieces in play at a time.
-    Each Point can have 0 or more Pieces.
-
-    White's home is lower-right and can only move up the array.
-    Black's home is upper-right and can only move down the array.
-
-    Points are positioned in the array like this:
-
-    [ 12 | 11 | 10 |  9 |  8 |  7 ][  6 |  5 |  4 |  3 |  2 |  1 ] [ white jail / black home ]
-    [ 13 | 14 | 15 | 16 | 17 | 18 ][ 19 | 20 | 21 | 22 | 23 | 24 ] [ black jail / white home ]
-
-    Point 0 is both the jail for white and the home for black.  Point
-    25 is both the jail for black and home for white.  A
-    representation of a new Board:
-
-    [ 12:W5 | 11    | 10    |  9    |  8:B3 |  7    ] [  6:B5 |  5    |  4    |  3    |  2    |  1:W2 ] [  0:W0:B0 ]
-    [ 13:B5 | 14    | 15    | 16    | 17:W3 | 18    ] [ 19:W5 | 20    | 21    | 22    | 23    | 24:B2 ] [ 25:B0:W0 ]
-    """
 
     def __init__(self, white=None, black=None):
         self.board = Board()
@@ -46,9 +27,6 @@ class BackGammonBoard(object):
 
     @property
     def color(self):
-        """
-        The current color.  White always starts.
-        """
         return BLACK if len(self.history) % 2 == 0 else WHITE
 
 
@@ -60,11 +38,7 @@ class BackGammonBoard(object):
         return self.board
 
     def move(self, src, dst):
-        """
-        * Update the board for given move.
-        * Mark the move as used in the roll.
-        * Capture move in this game's history.
-        """
+
         if isinstance(src, Point):
             src = src.num
         if isinstance(dst, Point):
@@ -72,6 +46,20 @@ class BackGammonBoard(object):
         new = self.board.move(src, dst)
         self.board = new
         return new
+
+
+class BackGammonHeartBeat(threading.Thread):
+
+        def __init__(self, playersocket):
+                threading.Thread.__init__(self)
+                self.player = playersocket
+                self.timeout = 10
+
+        def run(self):
+            while True:
+                time.sleep(20)
+                messageHandler.SendMessage(self.player, "PING", None)
+
 
 
 class BackgammonServer(object):
@@ -98,6 +86,9 @@ class BackgammonServer(object):
             playerThread = BackGammonPlayer(clientSocket, clientAddress)
             playerThread.start()
 
+            heartbeat = BackGammonHeartBeat(clientSocket)
+            heartbeat.start()
+
 class BackGammonPlayerRoomList(object):
 
         def __init__(self):
@@ -106,9 +97,6 @@ class BackGammonPlayerRoomList(object):
 
         def addPlayer(self, username):
                 self.waitingList.put(username)
-
-        def markAsDeleted(self, username):
-                self.deletedWaiters[username] = 'deleted'
 
         def findPlayer(self, username):
                 if self.waitingList.empty():
@@ -132,7 +120,15 @@ class BackGammonPlayer(threading.Thread):
                 self.gameInitializer = False
                 self.game = False
 
+# 
+# mysocket.setblocking(0)
+# 
+# ready = select.select([mysocket], [], [], timeout_in_seconds)
+# if ready[0]:
+#     data = mysocket.recv(4096)
+#     
         def run(self):
+
                 self.player = BackGammonPlayer(self.playerSocket, self.serverAddress)
                 if self.requestConnection() is False:
                         self.playerSocket.close()
@@ -144,7 +140,7 @@ class BackGammonPlayer(threading.Thread):
                         self.state = 'CONNECTED'
 
                 while True:
-                        if self.state == 'WAITING':
+                        if self.state == 'PLAYING':
                                 return
 
                         print("waiting client request")
@@ -153,8 +149,8 @@ class BackGammonPlayer(threading.Thread):
 
                         header = messageHandler.getMessageHeader(res)
                         print("client message is" + header)
-                        if header == 'CPNG':
-                                self.GetPongResponse()
+                        if header == 'PONG':
+                                print("PONG received from " + self.username)
                         elif header == 'CPLY' and self.state == 'CONNECTED':
                                 print("play requested")
                                 self.RequestPlay()
@@ -191,12 +187,12 @@ class BackGammonPlayer(threading.Thread):
                 playerListLock.acquire()
                 opponent = playerList[opponent][0]
                 playerListLock.release()
-                playerRoomList.
+
                 self.setState('PLAYING')
                 self.userType = 'player'
                 opponent.player.setUserType('player')
                 opponent.setState('PLAYING')
-
+                print("count " +str(playerRoomList.waitingList.qsize()))
                 game = BackGammonGame(self, opponent)
                 self.game = game
                 #gameList.addGameToGameList(g)
@@ -249,6 +245,7 @@ class BackGammonGame():
                 self.playerList = {}
                 self.activePlayer = -1
                 self.passivePlayer = -1
+                self.state = ''
 
         def addWatcher(self):
                 return
@@ -314,7 +311,9 @@ class BackGammonGame():
                         data = self.activePlayer.playerSocket.recv(1024);
                         cMsg = messageHandler.getMessageHeader(data)
                         print(cMsg + " message is got from active player")
-                        if cMsg == "CTDC" and movesended is False:
+                        if cMsg == "PONG":
+                                print("PONG received from " + self.activePlayer.username)
+                        elif cMsg == "CTDC" and movesended is False:
                                 dicethrowed = True
                                 self.throwDice()
                         elif cMsg == "CSMV" and dicethrowed is True:
@@ -330,6 +329,7 @@ class BackGammonGame():
                                 self.state = 'GAMEENDED'
                                 turnEnded = True
                         else:
+                                print(cMsg + " is received, server sending error")
                                 messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVE", None)
 
 
