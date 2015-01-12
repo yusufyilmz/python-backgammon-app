@@ -2,6 +2,29 @@ import sys
 import socket
 from MessageImplementer import *
 from temp import *
+import threading
+import time
+import Queue
+
+messageList = Queue.PriorityQueue()
+
+class BackGroundMessageHandler(threading.Thread):
+        def __init__(self, socket):
+                threading.Thread.__init__(self)
+                self.s = socket
+
+        def run(self):
+                counter = 1
+                while True:
+                        msg = self.s.recv(1024)
+                        if messageHandler.getMessageHeader(msg) == "PING":
+                                print("ping received")
+                                messageHandler.SendMessage(self.s, "PONG")
+                                print("pong sended")
+                        else:
+                                messageList.put((counter, msg))
+                                counter += 1
+
 
 class Client(object):
         def __init__(self, serverIP, port, username):
@@ -36,8 +59,6 @@ class Client(object):
 
                 return True
 
-
-
         def setupConnection(self):
                 self.s = socket.socket()
                 try:
@@ -65,7 +86,7 @@ class Client(object):
 
                 if self.setupConnection() is False:
                         print("session setup is false")
-                        return;
+                        return
 
                 print("Welcome to backgammon server " + self.username)
                 self.connectedInputScreen()
@@ -73,14 +94,22 @@ class Client(object):
                 clientInput = sys.stdin.readline()
                 print(clientInput)
                 self.CreateClientInput(clientInput)
+                handler = BackGroundMessageHandler(self.s)
+                handler.start()
+                self.getMessageAndHandleIt()
 
+
+        def getMessageAndHandleIt(self):
                 while True:
                         print("waiting response from server")
+                        if messageList.empty():
+                                pass
 
-                        msg = self.s.recv(1024)
+                        data = messageList.get(True)[1]
 
-                        if self.handleServerInput(msg) is False:
+                        if self.handleServerInput(data) is False:
                                 break
+
                         print("waiting response from client")
 
                         clientInput = sys.stdin.readline()
@@ -107,13 +136,8 @@ class Client(object):
 
         def handleServerInput(self, rMsg):
                 header = messageHandler.getMessageHeader(rMsg)
-                sMsg = False
                 if rMsg == '':
                         return False
-                #todo
-                elif header == 'SPNG':
-                        if sMsg is not False:
-                                self.s.send(sMsg)
                 elif header == 'SRVP':
                         self.HandleServerPlayMessage(rMsg)
                 elif header == 'SRVW':
@@ -122,6 +146,7 @@ class Client(object):
                         self.HandleServerOkMessage(rMsg)
                 elif header == 'SRVE':
                         print('you put wrong message, please try again later')
+                        self.getMessageAndHandleIt()
                 else:
                         print('unknown message from the server')
                         print(rMsg)
@@ -225,7 +250,7 @@ class Client(object):
 
         def CreateSendMoveMessage(self):
                 print("move is sending")
-                print("Press moves sequentially from source to destination( ex: 6 2 4 2 5 3")
+                print("Press moves sequentially from source to destination( ex: 6 2 4 2 5 3 10 2")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
                 clientInput = sys.stdin.readline()
@@ -254,8 +279,8 @@ class Client(object):
 
 
         def connectedInputScreen(self):
-                print("(1) Play")
-                print("(2) Watch")
+                print("Press 1 for Play")
+                print("Press 2 for Watch")
                 sys.stdout.write("> ")
                 sys.stdout.flush()
 
@@ -287,14 +312,17 @@ class Client(object):
                                 return
                         else:
                                 print("waiting opponent to move")
-                                msg = self.s.recv(1024)
-                                print("your turn")
-                                return self.handleServerInput(msg)
+                                self.getMessageAndHandleIt()
+
 
 if __name__ == "__main__":
         messageHandler = MessageImplementer()
+        print ("Please provide a username for login")
+        sys.stdout.write("> ")
+        sys.stdout.flush()
+        clientInput = sys.stdin.readline()
         serverIP = '0.0.0.0'
-        username = 'sd48'
+        username = str(clientInput)
         port = 12352
         c = Client(serverIP, port, username)
         c.run()
