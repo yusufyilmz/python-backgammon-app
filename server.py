@@ -9,10 +9,11 @@ import random
 from temp import *
 from board import Board, Point
 
+
 playerList = {}
 playerListLock = threading.Lock()
 dice = [1,2,3,4,5,6]
-heartBeatTimeout = 30
+heartBeatTimeout = 40
 gameList = Queue.Queue()
 
 
@@ -58,8 +59,7 @@ class BackGammonHeartBeat(threading.Thread):
 
         def run(self):
             while True:
-                time.sleep(20)
-                print(self.player.state)
+                time.sleep(30)
                 if self.player.state == 'DELETED':
                         return
 
@@ -74,17 +74,23 @@ class BackGroundMessageHandler(threading.Thread):
         def run(self):
                 counter = 1
                 while True:
+                        if self.player.state == 'DELETED':
+                                return
                         try:
-                                self.player.playerSocket.settimeout(5.0)
+                                self.player.playerSocket.settimeout(heartBeatTimeout)
                                 msg = self.player.playerSocket.recv(1024)
                         except socket.timeout:
-                                print("No Pong message is received from " + str(self.name) + "")
+                                if self.player.state == 'DELETED':
+                                        return
+
+                                print("No Pong message is received from " + str(self.player.username) + "")
                                 self.player.state = 'DELETED'
+                                playerList.pop(self.player.username)
                                 self.player.playerSocket.close()
                                 return
 
                         if messageHandler.getMessageHeader(msg) == "PONG":
-                                print("pong received from " + str(self.name))
+                                print("pong received from " + str(self.player.username))
                         else:
                                 self.player.messageList.put((counter, msg))
                                 counter += 1
@@ -93,7 +99,7 @@ class BackGroundMessageHandler(threading.Thread):
 class BackgammonServer(object):
 
     def __init__(self):
-        self.serverPort = 12356
+        self.serverPort = 12357
 
     def initializeSocket(self):
         self.serverSocket = socket.socket()
@@ -148,14 +154,6 @@ class BackGammonPlayer(threading.Thread):
                 self.game = False
                 self.messageList = Queue.PriorityQueue()
 
-#
-# mysocket.setblocking(0)
-#
-# ready = select.select([mysocket], [], [], timeout_in_seconds)
-# if ready[0]:
-#     data = mysocket.recv(4096)
-#
-
         def GetMessageList(self):
                 return self.messageList
 
@@ -191,19 +189,24 @@ class BackGammonPlayer(threading.Thread):
                         print("client request arrived")
 
                         header = messageHandler.getMessageHeader(res)
-                        print("client message is" + header)
-                        if header == 'PONG':
-                                print("PONG received from " + self.username)
-                        elif header == 'CPLY' and self.state == 'CONNECTED':
+                        print("client message is " + header)
+
+                        if header == 'CPLY' and self.state == 'CONNECTED':
                                 print("play requested")
                                 self.RequestPlay()
                         elif header == 'CWTC' and self.state == 'CONNECTED':
                                 self.RequestWatch()
-                        elif header == 'CLVE' and self.state == 'WAITING':
-                                print(self.username + ' wants to leave')
-                                # Mark the client as leaving. It will be handled in the main loop
+                        elif header == 'CLVE' and self.state == 'CONNECTED':
                                 self.state = 'DELETED'
+                                print(self.username + 'leaved server')
+                                messageHandler.SendMessage(self.playerSocket, "SRVL", None)
+                                playerList.pop(self.username)
                                 self.playerSocket.close()
+                        elif header == 'CLVE' and self.state == 'WAITING':
+                                self.state = 'CONNECTED'
+                                paramDict = {}
+                                paramDict["result"] = 'success'
+                                messageHandler.SendMessage(self.playerSocket, "SRVK", paramDict)
                         else:
                                 messageHandler.SendMessage(self.playerSocket, "SRVE", None)
 
@@ -225,7 +228,11 @@ class BackGammonPlayer(threading.Thread):
                 else:
                         game = gameList.get(True)
                         game.addWatcher(self)
-
+                        paramDict = {}
+                        paramDict["type"] = 'watch'
+                        paramDict["result"] = 'success'
+                        paramDict["board"] = game.getBoardState()
+                        messageHandler.SendMessage(self.playerSocket, "SRVW", paramDict)
 
         def RequestPlay(self):
                 self.userType = 'player'
@@ -304,6 +311,7 @@ class BackGammonGame(threading.Thread):
                 self.passivePlayer = -1
                 self.watcher = -1
                 self.state = ''
+                self.gameId = threading.currentThread().ident
 
 
         def addWatcher(self, watcher):
@@ -312,14 +320,15 @@ class BackGammonGame(threading.Thread):
 
 
         def run(self):
-                print('Game starts')
                 gameList.put(self)
                 self.SetupStart()
                 self.SetupPlayers()
+                print('gameIdGame starts between ' + self.activePlayer.username + ' and ' + self.passivePlayer.username)
 
                 while True:
                         self.playTurn()
                         if self.state == 'GAMEENDED':
+                            print('Game ends between ' + self.activePlayer.username + ' and ' + self.passivePlayer.username)
                             return
 
 
@@ -370,7 +379,6 @@ class BackGammonGame(threading.Thread):
 
                 while turnEnded is False:
                         print("Waiting response from active player")
-                        #data = self.activePlayer.playerSocket.recv(1024);
                         msgList = self.activePlayer.GetMessageList()
 
                         if msgList.empty():
@@ -394,14 +402,25 @@ class BackGammonGame(threading.Thread):
                         elif cMsg == "CWMA" and dicethrowed is False:
                                 self.sendWrongMove()
                                 turnEnded = True
-                        elif cMsg == "CLVE":
-                                self.state = 'GAMEENDED'
+                        elif cMsg == "CGME":
+                                self.EndGame()
                                 turnEnded = True
                         else:
                                 print(cMsg + " is received, server sending error")
                                 messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVE", None)
 
-
+        def EndGame(self):
+                self.state = 'GAMEENDED'
+                paramDict = {}
+                paramDict["type"] = 'gameended'
+                paramDict["result"] = 'success'
+                self.activePlayer.setState('CONNECTED')
+                self.passivePlayer.setState('CONNECTED')
+                messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVP", paramDict)
+                messageHandler.SendMessage(self.passivePlayer.playerSocket, "SRVP", paramDict)
+                if self.watcher != -1:
+                        self.watcher.setState('CONNECTED')
+                        messageHandler.SendMessage(self.watcher.playerSocket, "SRVW", paramDict)
 
         def throwDice(self):
                 paramDict = {}
@@ -411,7 +430,12 @@ class BackGammonGame(threading.Thread):
                 paramDict["board"] = self.getBoardState()
                 paramDict["result"] = 'success'
                 print("dice throwed, dice results are:" + str(paramDict['Dice1']) + ", " + str(paramDict['Dice2']))
+                paramDict["turn"] = 1
                 messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVP", paramDict)
+                paramDict["turn"] = 0
+                messageHandler.SendMessage(self.passivePlayer.playerSocket, "SRVP", paramDict)
+                if self.watcher != -1:
+                        messageHandler.SendMessage(self.watcher.playerSocket, "SRVW", paramDict)
 
 
         def sendMove(self, data):
@@ -439,7 +463,8 @@ class BackGammonGame(threading.Thread):
                 messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVP", paramDict)
                 paramDict['turn'] = 0
                 messageHandler.SendMessage(self.passivePlayer.playerSocket, "SRVP", paramDict)
-
+                if self.watcher != -1:
+                        messageHandler.SendMessage(self.watcher.playerSocket, "SRVW", paramDict)
 
         def sendWrongMove(self):
                 print("active player turn ended")
@@ -456,6 +481,8 @@ class BackGammonGame(threading.Thread):
                 messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVP", paramDict)
                 paramDict['turn'] = 0
                 messageHandler.SendMessage(self.passivePlayer.playerSocket, "SRVP", paramDict)
+                if self.watcher != -1:
+                        messageHandler.SendMessage(self.watcher.playerSocket, "SRVW", paramDict)
 
         def getBoardState(self):
                 return self.board.getStateOfBoard()
@@ -469,6 +496,7 @@ class BackGammonGame(threading.Thread):
 
 if __name__ == "__main__":
         messageHandler = MessageImplementer()
+
         playerRoomList = BackGammonPlayerRoomList()
         server = BackgammonServer()
         server.start()
