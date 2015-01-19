@@ -305,7 +305,7 @@ class BackGammonGame(threading.Thread):
                 self.player = player
                 self.opponent = opponent
                 self.board = BackGammonBoard()
-                self.previousBoard =BackGammonBoard()
+                self.previousBoard = BackGammonBoard()
                 self.playerList = {}
                 self.activePlayer = -1
                 self.passivePlayer = -1
@@ -327,6 +327,7 @@ class BackGammonGame(threading.Thread):
 
                 while True:
                         self.playTurn()
+
                         if self.state == 'GAMEENDED':
                             print('Game ends between ' + self.activePlayer.username + ' and ' + self.passivePlayer.username)
                             return
@@ -378,11 +379,18 @@ class BackGammonGame(threading.Thread):
                 turnEnded = False
 
                 while turnEnded is False:
+                        if self.watcher.state == 'DELETED':
+                                self.watcher = -1
+                            
+                        if self.activePlayer.state == 'DELETED' or self.passivePlayer.state == 'DELETED':
+                                self.EndGame()
+                                turnEnded = True
+                            
                         print("Waiting response from active player")
                         msgList = self.activePlayer.GetMessageList()
-
+                    
                         if msgList.empty():
-                                pass
+                                continue
 
                         data = msgList.get(True)[1]
 
@@ -414,10 +422,13 @@ class BackGammonGame(threading.Thread):
                 paramDict = {}
                 paramDict["type"] = 'gameended'
                 paramDict["result"] = 'success'
-                self.activePlayer.setState('CONNECTED')
-                self.passivePlayer.setState('CONNECTED')
-                messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVP", paramDict)
-                messageHandler.SendMessage(self.passivePlayer.playerSocket, "SRVP", paramDict)
+                
+                if self.activePlayer.state != 'DELETED':
+                        self.activePlayer.setState('CONNECTED')
+                        messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVP", paramDict)
+                if self.passivePlayer.state != 'DELETED':
+                        self.passivePlayer.setState('CONNECTED')
+                        messageHandler.SendMessage(self.passivePlayer.playerSocket, "SRVP", paramDict)
                 if self.watcher != -1:
                         self.watcher.setState('CONNECTED')
                         messageHandler.SendMessage(self.watcher.playerSocket, "SRVW", paramDict)
