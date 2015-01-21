@@ -79,7 +79,7 @@ class BackGroundMessageHandler(threading.Thread):
                         try:
                                 self.player.playerSocket.settimeout(heartBeatTimeout)
                                 msg = self.player.playerSocket.recv(1024)
-                        except socket.timeout:
+                        except :
                                 if self.player.state == 'DELETED':
                                         return
 
@@ -186,8 +186,11 @@ class BackGammonPlayer(threading.Thread):
 
                         res = self.messageList.get(True)[1]
 
-                        print("client request arrived")
+                        if res is None:
+                                continue
 
+                        print("client request arrived")
+                        print(str(res))
                         header = messageHandler.getMessageHeader(res)
                         print("client message is " + header)
 
@@ -208,7 +211,9 @@ class BackGammonPlayer(threading.Thread):
                                 paramDict["result"] = 'success'
                                 messageHandler.SendMessage(self.playerSocket, "SRVK", paramDict)
                         else:
-                                messageHandler.SendMessage(self.playerSocket, "SRVE", None)
+                                if(self.state != 'DELETED'):
+                                        messageHandler.SendMessage(self.playerSocket, "SRVE", None)
+
 
         def setState(self, state):
                 self.state = state
@@ -381,14 +386,14 @@ class BackGammonGame(threading.Thread):
                 while turnEnded is False:
                         if self.watcher.state == 'DELETED':
                                 self.watcher = -1
-                            
+
                         if self.activePlayer.state == 'DELETED' or self.passivePlayer.state == 'DELETED':
                                 self.EndGame()
                                 turnEnded = True
-                            
+
                         print("Waiting response from active player")
                         msgList = self.activePlayer.GetMessageList()
-                    
+
                         if msgList.empty():
                                 continue
 
@@ -422,7 +427,7 @@ class BackGammonGame(threading.Thread):
                 paramDict = {}
                 paramDict["type"] = 'gameended'
                 paramDict["result"] = 'success'
-                
+
                 if self.activePlayer.state != 'DELETED':
                         self.activePlayer.setState('CONNECTED')
                         messageHandler.SendMessage(self.activePlayer.playerSocket, "SRVP", paramDict)
@@ -507,7 +512,6 @@ class BackGammonGame(threading.Thread):
 
 if __name__ == "__main__":
         messageHandler = MessageImplementer()
-
         playerRoomList = BackGammonPlayerRoomList()
         server = BackgammonServer()
         server.start()
